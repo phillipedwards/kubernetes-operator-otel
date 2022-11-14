@@ -234,7 +234,41 @@ export class PulumiKubernetesOperator extends pulumi.ComponentResource {
                                     name: "OPERATOR_NAME",
                                     value: "pulumi-kubernetes-operator",
                                 },
+                                {
+                                    name: "OTEL_OTLP_ENDPOINT",
+                                    value: "localhost:4317",
+                                },
+                                {
+                                    name: "OTEL_RESOURCE_ATTRIBUTES",
+                                    value: "service.namespace=AWSObservability,service.name=CloudWatchEKSService",
+                                },
+                                {
+                                    name: "S3_REGION",
+                                    value: "us-west-2",
+                                },
+                                {
+                                    name: "OTEL_METRICS_EXPORTER",
+                                    value: "otlp",
+                                },
                             ],
+                        }, {
+                            name: "aws-otel-collector",
+                            image: "amazon/aws-otel-collector:latest",
+                            env: [{
+                                name: "AWS_REGION",
+                                value: "us-west-2",
+                            }],
+                            imagePullPolicy: "Always",
+                            resources: {
+                                limits: {
+                                    cpu: "256m",
+                                    memory: "512Mi",
+                                },
+                                requests: {
+                                    cpu: "32m",
+                                    memory: "24Mi",
+                                },
+                            },
                         }],
                         terminationGracePeriodSeconds: 300,
                     },

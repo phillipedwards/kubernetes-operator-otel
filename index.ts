@@ -6,6 +6,9 @@ import * as kx from "@pulumi/kubernetesx";
 import * as eks from "@pulumi/eks";
 import * as operator from "./operator";
 import * as otel from "./otel";
+import * as iam from "./iam";
+
+const role = iam.createRole("node-group");
 
 const cluster = new eks.Cluster("cluster", {
     publicSubnetIds: ["subnet-dc6b74f4", "subnet-2578356e"],
@@ -13,6 +16,8 @@ const cluster = new eks.Cluster("cluster", {
     minSize: 2,
     maxSize: 2,
     deployDashboard: false,
+    skipDefaultNodeGroup: true,
+    instanceRole: role,
     enabledClusterLogTypes: [
         "api",
         "audit",
@@ -22,6 +27,12 @@ const cluster = new eks.Cluster("cluster", {
         disableTcpEarlyDemux: true,
     }
 });
+
+eks.createManagedNodeGroup("node-group", {
+    cluster: cluster,
+    nodeGroupName: "otel-ng",
+    nodeRoleArn: role.arn
+}, cluster);
 
 // #############################################################################
 // Deploy the Pulumi Kubernetes Operator
