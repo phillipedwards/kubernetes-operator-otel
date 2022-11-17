@@ -5,8 +5,8 @@ import * as k8s from "@pulumi/kubernetes";
 import * as kx from "@pulumi/kubernetesx";
 import * as eks from "@pulumi/eks";
 import * as operator from "./operator";
-import * as otel from "./otel";
 import * as iam from "./iam";
+import * as metrics from "./otel";
 
 const role = iam.createRole("node-group");
 
@@ -56,6 +56,7 @@ const pulumiOperator = new operator.PulumiKubernetesOperator(name, {
 // Get the Pulumi API token and AWS creds.
 const config = new pulumi.Config();
 const awsConfig = new pulumi.Config("aws");
+const region = awsConfig.require("region");
 
 const pulumiAccessToken = config.requireSecret("pulumiAccessToken");
 
@@ -86,6 +87,9 @@ const mystack = new k8s.apiextensions.CustomResource("my-stack", {
         stack: stackName,
         projectRepo: stackProjectRepo,
         branch: "refs/heads/master",
+        continueResyncOnCommitMatch: true,
+        destroyOnFinalize: true,
+        resyncFrequencySeconds: 60,
         envRefs: {
             PULUMI_ACCESS_TOKEN:
             {
@@ -118,27 +122,13 @@ const mystack = new k8s.apiextensions.CustomResource("my-stack", {
             }
         },
         config: {
-            "aws:region": awsConfig.require("region"),
+            "aws:region": region,
         },
-        //destroyOnFinalize: true,
-        continueResyncOnCommitMatch: true,
-        resyncFrequencySeconds: 60,
     },
 }, { dependsOn: pulumiOperator.deployment, provider });
 
-//otel.createOtelResources(provider);
-
-// new k8s.helm.v3.Release("otel", {
-//     name: "adot-exporter-for-eks-on-ec2",
-//     chart: "adot-exporter-for-eks-on-ec2",
-//     repositoryOpts: {
-//         repo: "https://aws-observability.github.io/aws-otel-helm-charts"
-//     },
-//     values: {
-//         awsRegion: awsConfig.require("region"),
-//         clusterName: cluster.eksCluster.name,
-//     }
-// }, { provider });
+//otel.createOtelResources(region, provider, cluster.eksCluster.name);
+metrics.createInsights(region, provider, cluster.eksCluster.name);
 
 export const kubeconfig = cluster.kubeconfig;
 

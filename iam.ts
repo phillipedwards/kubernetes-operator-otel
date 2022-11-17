@@ -1,10 +1,12 @@
 import * as aws from "@pulumi/aws";
-import { policy } from "@pulumi/kubernetes";
 
 const managedPolicyArns: string[] = [
     "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
     "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
     "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
+    "arn:aws:iam::aws:policy/AmazonPrometheusFullAccess",
+    "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs",
+    "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 ];
 
 // Creates a role and attches the EKS worker node IAM managed policies
@@ -27,6 +29,11 @@ export function createRole(name: string): aws.iam.Role {
                         "logs:CreateLogStream",
                         "logs:DescribeLogStreams",
                         "logs:DescribeLogGroups",
+                        "xray:PutTraceSegments",
+                        "xray:PutTelemetryRecords",
+                        "xray:GetSamplingRules",
+                        "xray:GetSamplingTargets",
+                        "xray:GetSamplingStatisticSummaries",
                         "ssm:GetParameters"
                     ],
                     "Resource": "*"

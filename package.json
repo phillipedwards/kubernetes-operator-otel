@@ -3,10 +3,14 @@
     "devDependencies": {
         "@types/node": "^10.0.0"
     },
+    "scripts": {
+        "kube": "pulumi stack output kubeconfig --show-secrets > kubeconfig && export KUBECONFIG=./kubeconfig"
+    },
     "dependencies": {
         "@pulumi/aws": "^5.20.0",
         "@pulumi/eks": "^0.42.7",
         "@pulumi/kubernetes": "^3.0.0",
+        "@pulumi/kubernetes-cert-manager": "^0.0.3",
         "@pulumi/kubernetesx": "^0.1.0",
         "@pulumi/pulumi": "^3.0.0"
     }
