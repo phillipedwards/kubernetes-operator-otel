@@ -8,133 +8,157 @@ import * as operator from "./operator";
 import * as iam from "./iam";
 import * as metrics from "./otel";
 
-const role = iam.createRole("node-group");
+export = async () => {
+    const role = iam.createRole("node-group");
+    const cluster = new eks.Cluster("cluster", {
+        publicSubnetIds: ["subnet-dc6b74f4", "subnet-2578356e"],
+        desiredCapacity: 2,
+        minSize: 2,
+        maxSize: 2,
+        deployDashboard: false,
+        skipDefaultNodeGroup: true,
+        instanceRole: role,
+        enabledClusterLogTypes: [
+            "api",
+            "audit",
+            "authenticator",
+        ],
+        vpcCniOptions: {
+            disableTcpEarlyDemux: true,
+        }
+    });
 
-const cluster = new eks.Cluster("cluster", {
-    publicSubnetIds: ["subnet-dc6b74f4", "subnet-2578356e"],
-    desiredCapacity: 2,
-    minSize: 2,
-    maxSize: 2,
-    deployDashboard: false,
-    skipDefaultNodeGroup: true,
-    instanceRole: role,
-    enabledClusterLogTypes: [
-        "api",
-        "audit",
-        "authenticator",
-    ],
-    vpcCniOptions: {
-        disableTcpEarlyDemux: true,
-    }
-});
+    eks.createManagedNodeGroup("node-group", {
+        cluster: cluster,
+        nodeGroupName: "otel-ng",
+        nodeRoleArn: role.arn
+    }, cluster);
 
-eks.createManagedNodeGroup("node-group", {
-    cluster: cluster,
-    nodeGroupName: "otel-ng",
-    nodeRoleArn: role.arn
-}, cluster);
+    // #############################################################################
+    // Deploy the Pulumi Kubernetes Operator
 
-// #############################################################################
-// Deploy the Pulumi Kubernetes Operator
+    // By default, uses $HOME/.kube/config when no kubeconfig is set.
+    const provider = new k8s.Provider("k8s", {
+        kubeconfig: cluster.kubeconfig
+    });
 
-// By default, uses $HOME/.kube/config when no kubeconfig is set.
-const provider = new k8s.Provider("k8s", {
-    kubeconfig: cluster.kubeconfig
-});
+    // Get the Pulumi API token and AWS creds.
+    const config = new pulumi.Config();
 
-// Create the Pulumi Kubernetes Operator.
-// Uses a custom ComponentResource class based on Typescript code in https://git.io/JJ6yj
-const name = "pulumi-k8s-operator"
-const pulumiOperator = new operator.PulumiKubernetesOperator(name, {
-    namespace: "default",
-    provider,
-});
+    // Create the Pulumi Kubernetes Operator.
+    // Uses a custom ComponentResource class based on Typescript code in https://git.io/JJ6yj
+    const name = "pulumi-k8s-operator"
+    const pulumiOperator = new operator.PulumiKubernetesOperator(name, {
+        namespace: "default",
+        provider,
+        imageTag: config.get("operatorImageTag"),
+        image: config.get("image")
+    });
 
-// #############################################################################
-// Deploy AWS S3 Buckets
+    // #############################################################################
+    // Deploy AWS S3 Buckets
 
-// Get the Pulumi API token and AWS creds.
-const config = new pulumi.Config();
-const awsConfig = new pulumi.Config("aws");
-const region = awsConfig.require("region");
+    const awsConfig = new pulumi.Config("aws");
+    const region = awsConfig.require("region");
 
-const pulumiAccessToken = config.requireSecret("pulumiAccessToken");
+    const pulumiAccessToken = config.requireSecret("pulumiAccessToken");
 
-const awsAccessKeyId = config.require("awsAccessKeyId");
-const awsSecretAccessKey = config.requireSecret("awsSecretAccessKey");
-const awsSessionToken = config.requireSecret("awsSessionToken");
+    const awsAccessKeyId = config.require("awsAccessKeyId");
+    const awsSecretAccessKey = config.requireSecret("awsSecretAccessKey");
+    const awsSessionToken = config.requireSecret("awsSessionToken");
 
-const stackName = config.require("stackName");
-const stackProjectRepo = config.get("stackProjectRepo") || "https://github.com/joeduffy/test-s3-op-project";
+    const stackName = config.require("stackName");
+    const stackProjectRepo = config.get("stackProjectRepo") || "https://github.com/joeduffy/test-s3-op-project";
+    const splits = stackProjectRepo.split('/');
+    const projectName = splits[splits.length - 1];
 
-// Create the creds as Kubernetes Secrets.
-const accessToken = new kx.Secret("accesstoken", {
-    stringData: { accessToken: pulumiAccessToken },
-}, { provider });
-const awsCreds = new kx.Secret("aws-creds", {
-    stringData: {
-        "AWS_ACCESS_KEY_ID": awsAccessKeyId,
-        "AWS_SECRET_ACCESS_KEY": awsSecretAccessKey,
-        "AWS_SESSION_TOKEN": awsSessionToken,
-    },
-}, { provider });
+    // Create the creds as Kubernetes Secrets.
+    const accessToken = new kx.Secret("accesstoken", {
+        stringData: { accessToken: pulumiAccessToken },
+    }, { provider });
 
-// Create an AWS S3 Pulumi Stack in Kubernetes.
-const mystack = new k8s.apiextensions.CustomResource("my-stack", {
-    apiVersion: 'pulumi.com/v1',
-    kind: 'Stack',
-    spec: {
+    const awsCreds = new kx.Secret("aws-creds", {
+        stringData: {
+            "AWS_ACCESS_KEY_ID": awsAccessKeyId,
+            "AWS_SECRET_ACCESS_KEY": awsSecretAccessKey,
+            "AWS_SESSION_TOKEN": awsSessionToken,
+        },
+    }, { provider });
+
+    const commonSpec = {
         stack: stackName,
         projectRepo: stackProjectRepo,
         branch: "refs/heads/master",
         continueResyncOnCommitMatch: true,
-        destroyOnFinalize: true,
         resyncFrequencySeconds: 60,
-        envRefs: {
-            PULUMI_ACCESS_TOKEN:
-            {
-                type: "Secret",
-                secret: {
-                    name: accessToken.metadata.name,
-                    key: "accessToken",
+    };
+
+    // Create an AWS S3 Pulumi Stack in Kubernetes.
+    const mystack = new k8s.apiextensions.CustomResource("my-stack", {
+        apiVersion: "pulumi.com/v1",
+        kind: "Stack",
+        spec: {
+            ...commonSpec,
+            destroyOnFinalize: false,
+            refresh: true,
+            prerequisites: [{
+                name: "update-vault-credentials",
+                requirement: [{
+                    "succeededWithinDuration": "5m"
+                }]
+            }],
+            envRefs: {
+                PULUMI_ACCESS_TOKEN:
+                {
+                    type: "Secret",
+                    secret: {
+                        name: accessToken.metadata.name,
+                        key: "accessToken",
+                    },
                 },
-            },
-            AWS_ACCESS_KEY_ID: {
-                type: "Secret",
-                secret: {
-                    name: awsCreds.metadata.name,
-                    key: "AWS_ACCESS_KEY_ID",
+                AWS_ACCESS_KEY_ID: {
+                    type: "Secret",
+                    secret: {
+                        name: awsCreds.metadata.name,
+                        key: "AWS_ACCESS_KEY_ID",
+                    },
                 },
-            },
-            AWS_SECRET_ACCESS_KEY: {
-                type: "Secret",
-                secret: {
-                    name: awsCreds.metadata.name,
-                    key: "AWS_SECRET_ACCESS_KEY",
+                AWS_SECRET_ACCESS_KEY: {
+                    type: "Secret",
+                    secret: {
+                        name: awsCreds.metadata.name,
+                        key: "AWS_SECRET_ACCESS_KEY",
+                    },
                 },
-            },
-            AWS_SESSION_TOKEN: {
-                type: "Secret",
-                secret: {
-                    name: awsCreds.metadata.name,
-                    key: "AWS_SESSION_TOKEN",
+                AWS_SESSION_TOKEN: {
+                    type: "Secret",
+                    secret: {
+                        name: awsCreds.metadata.name,
+                        key: "AWS_SESSION_TOKEN",
+                    }
                 }
-            }
+            },
+            config: {
+                "aws:region": region,
+            },
         },
-        config: {
-            "aws:region": region,
-        },
-    },
-}, { dependsOn: pulumiOperator.deployment, provider });
+    }, { dependsOn: pulumiOperator.deployment, provider });
 
-//otel.createOtelResources(region, provider, cluster.eksCluster.name);
-metrics.createInsights(region, provider, cluster.eksCluster.name);
+    new k8s.apiextensions.CustomResource("target-update", {
+        apiVersion: "pulumi.com/v1",
+        kind: "Stack",
+        spec: {
+            ...commonSpec,
+            targets: [
+                `urn:pulumi:${stackName}::${projectName}::pulumi:providers:aws::default_5_13_0`,
+            ]
+        }
+    }, { dependsOn: [pulumiOperator.deployment, mystack], provider });
 
-export const kubeconfig = cluster.kubeconfig;
+    //otel.createOtelResources(region, provider, cluster.eksCluster.name);
+    metrics.createInsights(region, provider, cluster.eksCluster.name);
 
-/*
-1063510016
-1063907328
-1063227392
-993284096
-*/
+    return {
+        kubeconfig: cluster.kubeconfig
+    };
+}

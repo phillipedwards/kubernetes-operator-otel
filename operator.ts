@@ -157,6 +157,8 @@ export function createRoleBinding(
 export interface PulumiKubernetesOperatorArgs {
     namespace: pulumi.Input<string>;
     provider: k8s.Provider,
+    imageTag?: string
+    image?: string
 }
 export class PulumiKubernetesOperator extends pulumi.ComponentResource {
     public readonly deployment: k8s.apps.v1.Deployment;
@@ -165,8 +167,18 @@ export class PulumiKubernetesOperator extends pulumi.ComponentResource {
         opts: pulumi.ComponentResourceOptions = {}) {
         super("pulumi-kubernetes-operator", name, args, opts);
 
+        if (!args.image && !args.imageTag) {
+            throw new Error("one of image or imageTag must be populated");
+        }
+
+        const image = args.imageTag ?
+            `pulumi/pulumi-kubernetes-operator:${args.image}` : 
+            args.image;
+
         // Install the CRD
-        const crds = installCRDs(name, "https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/master/deploy/crds/pulumi.com_stacks.yaml", args.provider);
+        // hard coded URLs for refresh target testing
+        const stackCRD = installCRDs(name, `https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.11.1/deploy/crds/pulumi.com_stacks.yaml`, args.provider);
+        const programCRD = installCRDs(`${name}-program`, `https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.11.1/deploy/crds/pulumi.com_programs.yaml`, args.provider);
 
         // Create the service account.
         const serviceAccount = createServiceAccount(name, {
@@ -208,7 +220,7 @@ export class PulumiKubernetesOperator extends pulumi.ComponentResource {
                         serviceAccountName: serviceAccountName,
                         containers: [{
                             name: "pulumi-kubernetes-operator",
-                            image: "pulumi/pulumi-kubernetes-operator:v1.10.0",
+                            image: image,
                             args: ["--zap-level=debug"],
                             env: [
                                 {
@@ -238,7 +250,7 @@ export class PulumiKubernetesOperator extends pulumi.ComponentResource {
                     },
                 },
             },
-        }, { dependsOn: [crds, roleBinding], provider: args.provider });
+        }, { dependsOn: [stackCRD, programCRD, roleBinding], provider: args.provider });
     }
 }
 
