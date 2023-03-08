@@ -177,8 +177,8 @@ export class PulumiKubernetesOperator extends pulumi.ComponentResource {
 
         // Install the CRD
         // hard coded URLs for refresh target testing
-        const stackCRD = installCRDs(name, `https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.11.1/deploy/crds/pulumi.com_stacks.yaml`, args.provider);
-        const programCRD = installCRDs(`${name}-program`, `https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/v1.11.1/deploy/crds/pulumi.com_programs.yaml`, args.provider);
+        const stackCRD = installCRDs(name, `https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/target-before-refresh/deploy/crds/pulumi.com_stacks.yaml`, args.provider);
+        const programCRD = installCRDs(`${name}-program`, `https://raw.githubusercontent.com/pulumi/pulumi-kubernetes-operator/target-before-refresh/deploy/crds/pulumi.com_programs.yaml`, args.provider);
 
         // Create the service account.
         const serviceAccount = createServiceAccount(name, {

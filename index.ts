@@ -89,8 +89,39 @@ export = async () => {
         stack: stackName,
         projectRepo: stackProjectRepo,
         branch: "refs/heads/master",
-        continueResyncOnCommitMatch: true,
-        resyncFrequencySeconds: 60,
+        retryOnUpdateConflict: true,
+    };
+
+    const envRefs = {
+        PULUMI_ACCESS_TOKEN:
+        {
+            type: "Secret",
+            secret: {
+                name: accessToken.metadata.name,
+                key: "accessToken",
+            },
+        },
+        AWS_ACCESS_KEY_ID: {
+            type: "Secret",
+            secret: {
+                name: awsCreds.metadata.name,
+                key: "AWS_ACCESS_KEY_ID",
+            },
+        },
+        AWS_SECRET_ACCESS_KEY: {
+            type: "Secret",
+            secret: {
+                name: awsCreds.metadata.name,
+                key: "AWS_SECRET_ACCESS_KEY",
+            },
+        },
+        AWS_SESSION_TOKEN: {
+            type: "Secret",
+            secret: {
+                name: awsCreds.metadata.name,
+                key: "AWS_SESSION_TOKEN",
+            }
+        }
     };
 
     // Create an AWS S3 Pulumi Stack in Kubernetes.
@@ -99,45 +130,17 @@ export = async () => {
         kind: "Stack",
         spec: {
             ...commonSpec,
+            resyncFrequencySeconds: 60,
+            continueResyncOnCommitMatch: true,
             destroyOnFinalize: false,
             refresh: true,
             prerequisites: [{
                 name: "update-vault-credentials",
-                requirement: [{
+                requirement: {
                     "succeededWithinDuration": "5m"
-                }]
-            }],
-            envRefs: {
-                PULUMI_ACCESS_TOKEN:
-                {
-                    type: "Secret",
-                    secret: {
-                        name: accessToken.metadata.name,
-                        key: "accessToken",
-                    },
-                },
-                AWS_ACCESS_KEY_ID: {
-                    type: "Secret",
-                    secret: {
-                        name: awsCreds.metadata.name,
-                        key: "AWS_ACCESS_KEY_ID",
-                    },
-                },
-                AWS_SECRET_ACCESS_KEY: {
-                    type: "Secret",
-                    secret: {
-                        name: awsCreds.metadata.name,
-                        key: "AWS_SECRET_ACCESS_KEY",
-                    },
-                },
-                AWS_SESSION_TOKEN: {
-                    type: "Secret",
-                    secret: {
-                        name: awsCreds.metadata.name,
-                        key: "AWS_SESSION_TOKEN",
-                    }
                 }
-            },
+            }],
+            envRefs: envRefs,
             config: {
                 "aws:region": region,
             },
@@ -145,13 +148,21 @@ export = async () => {
     }, { dependsOn: pulumiOperator.deployment, provider });
 
     new k8s.apiextensions.CustomResource("target-update", {
+        name: "update-vault-credentials",
         apiVersion: "pulumi.com/v1",
+        metadata: {
+            name: "update-vault-credentials"
+        },
         kind: "Stack",
         spec: {
             ...commonSpec,
             targets: [
                 `urn:pulumi:${stackName}::${projectName}::pulumi:providers:aws::default_5_13_0`,
-            ]
+            ],
+            envRefs: envRefs,
+            config: {
+                "aws:region": region,
+            }
         }
     }, { dependsOn: [pulumiOperator.deployment, mystack], provider });
 
